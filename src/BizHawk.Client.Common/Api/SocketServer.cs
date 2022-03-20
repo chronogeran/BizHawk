@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -10,6 +11,8 @@ namespace BizHawk.Client.Common
 		private IPEndPoint _remoteEp;
 
 		private Socket _soc = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+		private readonly Dictionary<int, Socket> _clients = new();
+		private int _currentClientSocketHandle = 1;
 
 		private readonly Func<byte[]> _takeScreenshotCallback;
 
@@ -63,15 +66,52 @@ namespace BizHawk.Client.Common
 
 		private void Connect()
 		{
-			_remoteEp = new IPEndPoint(IPAddress.Parse(_targetAddr.HostIP), _targetAddr.Port);
-			_soc = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-			_soc.Connect(_remoteEp);
+			try
+			{
+				_remoteEp = new IPEndPoint(IPAddress.Parse(_targetAddr.HostIP), _targetAddr.Port);
+				_soc = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+				_soc.Connect(_remoteEp);
+			}
+			catch
+			{
+				return;
+			}
 			Connected = true;
+		}
+
+		public void Listen(int backlog)
+		{
+			_remoteEp = new IPEndPoint(_targetAddr.HostIP == "*" ? IPAddress.Any : IPAddress.Parse(_targetAddr.HostIP), _targetAddr.Port);
+			_soc = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+			_soc.Blocking = false;
+			_soc.Bind(_remoteEp);
+			_soc.Listen(backlog);
+		}
+
+		public int Accept()
+		{
+			try
+			{
+				var newClient = _soc.Accept();
+				if (newClient != null)
+				{
+					var handle = _currentClientSocketHandle++;
+					_clients.Add(handle, newClient);
+					return handle;
+				}
+			}
+			catch
+			{
+				// No incoming connection
+			}
+			return 0;
 		}
 
 		public string GetInfo() => $"{_targetAddr.HostIP}:{_targetAddr.Port}";
 
-		public string ReceiveString(Encoding encoding = null)
+		private Socket GetSocket(int socketHandle) { return socketHandle == 0 ? _soc : _clients[socketHandle]; }
+
+		public string ReceiveString(Encoding encoding = null, int socketHandle = 0)
 		{
 			if (!Connected)
 			{
@@ -79,6 +119,7 @@ namespace BizHawk.Client.Common
 			}
 
 			var myencoding = encoding ?? Encoding.UTF8;
+			var socket = GetSocket(socketHandle);
 
 			try
 			{
@@ -87,7 +128,7 @@ namespace BizHawk.Client.Common
 				StringBuilder sb = new StringBuilder();
 				for (; ; )
 				{
-					int recvd = _soc.Receive(oneByte, 1, 0);
+					int recvd = socket.Receive(oneByte, 1, 0);
 					if (oneByte[0] == (byte)' ')
 						break;
 					sb.Append((char)oneByte[0]);
@@ -100,7 +141,7 @@ namespace BizHawk.Client.Common
 				int at = 0;
 				for (; ; )
 				{
-					int recvd = _soc.Receive(buf, at, todo, SocketFlags.None);
+					int recvd = socket.Receive(buf, at, todo, SocketFlags.None);
 					if (recvd == 0)
 						throw new InvalidOperationException("ReceiveString terminated early");
 					todo -= recvd;
@@ -117,11 +158,12 @@ namespace BizHawk.Client.Common
 			}
 		}
 
-		public int SendBytes(byte[] sendBytes)
+		public int SendBytes(byte[] sendBytes, int socketHandle = 0)
 		{
 			try
 			{
-				return _soc.Send(sendBytes);
+				var socket = GetSocket(socketHandle);
+				return socket.Send(sendBytes);
 			}
 			catch
 			{
@@ -129,7 +171,7 @@ namespace BizHawk.Client.Common
 			}
 		}
 
-		public string SendScreenshot(int waitingTime = 0)
+		public string SendScreenshot(int waitingTime = 0, int socketHandle = 0)
 		{
 			var bmpBytes = _takeScreenshotCallback();
 			var sentBytes = 0;
@@ -139,7 +181,7 @@ namespace BizHawk.Client.Common
 				try
 				{
 					tries++;
-					sentBytes = SendBytes(bmpBytes);
+					sentBytes = SendBytes(bmpBytes, socketHandle);
 				}
 				catch (SocketException)
 				{
@@ -157,11 +199,11 @@ namespace BizHawk.Client.Common
 			{
 				return Successful ? "Screenshot was sent" : "Screenshot could not be sent";
 			}
-			var resp = ReceiveString();
+			var resp = ReceiveString(socketHandle: socketHandle);
 			return resp == "" ? "Failed to get a response" : resp;
 		}
 
-		public int SendString(string sendString, Encoding encoding = null)
+		public int SendString(string sendString, Encoding encoding = null, int socketHandle = 0)
 		{
 			var payloadBytes = (encoding ?? Encoding.UTF8).GetBytes(sendString);
 			var strLenOfPayloadBytes = payloadBytes.Length.ToString();
@@ -172,13 +214,17 @@ namespace BizHawk.Client.Common
 			ms.WriteByte((byte)' ');
 			ms.Write(payloadBytes,0,payloadBytes.Length);
 			
-			int sentBytes = SendBytes(ms.ToArray());
+			int sentBytes = SendBytes(ms.ToArray(), socketHandle);
 
 			Successful = sentBytes > 0;
 			return sentBytes;
 		}
 
-		public void SetTimeout(int timeout) => _soc.ReceiveTimeout = timeout;
+		public void SetTimeout(int timeout, int socketHandle = 0)
+		{
+			var socket = GetSocket(socketHandle);
+			socket.ReceiveTimeout = timeout;
+		}
 
 		public void SocketConnected() => Connected = !_soc.Poll(1000, SelectMode.SelectRead) || _soc.Available != 0;
 	}

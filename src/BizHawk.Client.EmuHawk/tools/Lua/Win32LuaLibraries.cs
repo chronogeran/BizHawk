@@ -33,7 +33,7 @@ namespace BizHawk.Client.EmuHawk
 				{
 					var foundAttrs = method.GetCustomAttributes(typeof(LuaMethodAttribute), false);
 					if (foundAttrs.Length == 0) continue;
-					if (instance != null) _lua.RegisterFunction($"{name}.{((LuaMethodAttribute) foundAttrs[0]).Name}", instance, method);
+					if (instance != null) _lua.RegisterFunction($"{name}.{((LuaMethodAttribute)foundAttrs[0]).Name}", instance, method);
 					Docs.Add(new LibraryFunction(
 						name,
 						type.GetCustomAttributes(typeof(DescriptionAttribute), false).Cast<DescriptionAttribute>()
@@ -51,6 +51,21 @@ namespace BizHawk.Client.EmuHawk
 			LuaWait = new AutoResetEvent(false);
 			PathEntries = config.PathEntries;
 			RegisteredFunctions = registeredFuncList;
+			RegisteredFunctionsByEvent = new()
+			{
+				{ "OnSavestateSave", new() },
+				{ "OnSavestateLoad", new() },
+				{ "OnFrameStart", new() },
+				{ "OnFrameEnd", new() },
+				{ "OnExit", new() },
+				{ "OnConsoleClose", new() },
+			};
+			foreach (var func in registeredFuncList)
+			{
+				if (!RegisteredFunctionsByEvent.ContainsKey(func.Event))
+					RegisteredFunctionsByEvent[func.Event] = new();
+				RegisteredFunctionsByEvent[func.Event].Add(func);
+			}
 			ScriptList = scriptList;
 			Docs.Clear();
 			_apiContainer = ApiManager.RestartLua(serviceProvider, LogToLuaConsole, _mainForm, _displayManager, _inputManager, _mainForm.MovieSession, _mainForm.Tools, config, emulator, game);
@@ -68,7 +83,7 @@ namespace BizHawk.Client.EmuHawk
 
 				if (addLibrary)
 				{
-					var instance = (LuaLibraryBase) Activator.CreateInstance(lib, this, _apiContainer, (Action<string>) LogToLuaConsole);
+					var instance = (LuaLibraryBase)Activator.CreateInstance(lib, this, _apiContainer, (Action<string>)LogToLuaConsole);
 					ServiceInjector.UpdateServices(serviceProvider, instance);
 
 					// TODO: make EmuHawk libraries have a base class with common properties such as this
@@ -114,7 +129,7 @@ namespace BizHawk.Client.EmuHawk
 
 		private readonly DisplayManagerBase _displayManager;
 
-		private GuiApi GuiAPI => (GuiApi) _apiContainer.Gui;
+		private GuiApi GuiAPI => (GuiApi)_apiContainer.Gui;
 
 		private readonly InputManager _inputManager;
 
@@ -169,12 +184,14 @@ namespace BizHawk.Client.EmuHawk
 		public bool FrameAdvanceRequested { get; private set; }
 
 		public LuaFunctionList RegisteredFunctions { get; }
+		// Maybe integrate this into LuaFunctionList
+		public Dictionary<string, List<NamedLuaFunction>> RegisteredFunctionsByEvent { get; }
 
 		public void CallSaveStateEvent(string name)
 		{
 			try
 			{
-				foreach (var lf in RegisteredFunctions.Where(l => l.Event == "OnSavestateSave"))
+				foreach (var lf in RegisteredFunctionsByEvent["OnSavestateSave"])
 				{
 					lf.Call(name);
 				}
@@ -191,7 +208,7 @@ namespace BizHawk.Client.EmuHawk
 		{
 			try
 			{
-				foreach (var lf in RegisteredFunctions.Where(l => l.Event == "OnSavestateLoad"))
+				foreach (var lf in RegisteredFunctionsByEvent["OnSavestateLoad"])
 				{
 					lf.Call(name);
 				}
@@ -209,7 +226,7 @@ namespace BizHawk.Client.EmuHawk
 			if (IsUpdateSupressed) return;
 			try
 			{
-				foreach (var lf in RegisteredFunctions.Where(l => l.Event == "OnFrameStart"))
+				foreach (var lf in RegisteredFunctionsByEvent["OnFrameStart"])
 				{
 					lf.Call();
 				}
@@ -227,7 +244,7 @@ namespace BizHawk.Client.EmuHawk
 			if (IsUpdateSupressed) return;
 			try
 			{
-				foreach (var lf in RegisteredFunctions.Where(l => l.Event == "OnFrameEnd"))
+				foreach (var lf in RegisteredFunctionsByEvent["OnFrameEnd"])
 				{
 					lf.Call();
 				}
@@ -242,8 +259,8 @@ namespace BizHawk.Client.EmuHawk
 
 		public void CallExitEvent(LuaFile lf)
 		{
-			foreach (var exitCallback in RegisteredFunctions
-				.Where(l => l.Event == "OnExit" && (l.LuaFile.Path == lf.Path || l.LuaFile.Thread == lf.Thread)))
+			foreach (var exitCallback in RegisteredFunctionsByEvent["OnExit"]
+				.Where(l => l.LuaFile.Path == lf.Path || l.LuaFile.Thread == lf.Thread))
 			{
 				exitCallback.Call();
 			}
@@ -252,13 +269,14 @@ namespace BizHawk.Client.EmuHawk
 
 		public void Close()
 		{
-			foreach (var closeCallback in RegisteredFunctions
-				.Where(l => l.Event == "OnConsoleClose"))
+			foreach (var closeCallback in RegisteredFunctionsByEvent["OnConsoleClose"])
 			{
 				closeCallback.Call();
 			}
 
 			RegisteredFunctions.Clear(_mainForm.Emulator);
+			foreach (var list in RegisteredFunctionsByEvent.Values)
+				list.Clear();
 			ScriptList.Clear();
 			FormsLibrary.DestroyAll();
 			_lua.Close();
@@ -269,14 +287,18 @@ namespace BizHawk.Client.EmuHawk
 		{
 			var nlf = new NamedLuaFunction(function, theEvent, logCallback, luaFile, name);
 			RegisteredFunctions.Add(nlf);
+			if (RegisteredFunctionsByEvent.ContainsKey(theEvent))
+				RegisteredFunctionsByEvent[theEvent].Add(nlf);
 			return nlf;
 		}
 
 		public bool RemoveNamedFunctionMatching(Func<INamedLuaFunction, bool> predicate)
 		{
-			var nlf = (NamedLuaFunction) RegisteredFunctions.FirstOrDefault(predicate);
+			var nlf = (NamedLuaFunction)RegisteredFunctions.FirstOrDefault(predicate);
 			if (nlf == null) return false;
 			RegisteredFunctions.Remove(nlf, _mainForm.Emulator);
+			if (RegisteredFunctionsByEvent.ContainsKey(nlf.Event))
+				RegisteredFunctionsByEvent[nlf.Event].Remove(nlf);
 			return true;
 		}
 

@@ -49,27 +49,39 @@ namespace BizHawk.Client.Common
 		}
 
 		[LuaMethod("socketServerSend", "sends a string to the Socket server")]
-		public int SocketServerSend(string SendString)
+		public int SocketServerSend(string SendString, int handle = 0)
 		{
 			if (!CheckSocketServer())
 			{
 				return -1;
 			}
-			return APIs.Comm.Sockets.SendString(SendString);
+			return APIs.Comm.Sockets.SendString(SendString, socketHandle: handle);
 		}
 
 		[LuaMethod("socketServerSendBytes", "sends bytes to the Socket server")]
-		public int SocketServerSendBytes(LuaTable byteArray)
+		public int SocketServerSendBytes(LuaTable byteArray, int handle = 0)
 		{
 			if (!CheckSocketServer()) return -1;
-			return APIs.Comm.Sockets.SendBytes(_th.EnumerateValues<double>(byteArray).Select(d => (byte) d).ToArray());
+			return APIs.Comm.Sockets.SendBytes(_th.EnumerateValues<double>(byteArray).Select(d => (byte) d).ToArray(), handle);
 		}
 
 		[LuaMethod("socketServerResponse", "receives a message from the Socket server")]
-		public string SocketServerResponse()
+		public string SocketServerResponse(int handle = 0)
 		{
 			CheckSocketServer();
-			return APIs.Comm.Sockets?.ReceiveString();
+			return APIs.Comm.Sockets?.ReceiveString(socketHandle: handle);
+		}
+
+		[LuaMethod("serverSocketListen", "listens on the given port for incoming connections")]
+		public void ServerSocketListen(int backlog)
+		{
+			APIs.Comm.Sockets?.Listen(backlog);
+		}
+
+		[LuaMethod("serverSocketAccept", "returns the handle of a newly connected socket, or 0 if none")]
+		public int ServerSocketAccept()
+		{
+			return APIs.Comm.Sockets?.Accept() ?? 0;
 		}
 
 		[LuaMethod("socketServerSuccessful", "returns the status of the last Socket server action")]
@@ -79,10 +91,10 @@ namespace BizHawk.Client.Common
 		}
 
 		[LuaMethod("socketServerSetTimeout", "sets the timeout in milliseconds for receiving messages")]
-		public void SocketServerSetTimeout(int timeout)
+		public void SocketServerSetTimeout(int timeout, int handle = 0)
 		{
 			CheckSocketServer();
-			APIs.Comm.Sockets?.SetTimeout(timeout);
+			APIs.Comm.Sockets?.SetTimeout(timeout, handle);
 		}
 
 		[LuaMethod("socketServerSetIp", "sets the IP address of the Lua socket server")]

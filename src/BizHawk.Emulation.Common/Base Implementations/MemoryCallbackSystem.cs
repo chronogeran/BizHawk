@@ -18,7 +18,7 @@ namespace BizHawk.Emulation.Common
 	{
 		public MemoryCallbackSystem(string[] availableScopes)
 		{
-			availableScopes ??= new[] {"System Bus"};
+			availableScopes ??= new[] { "System Bus" };
 
 			AvailableScopes = availableScopes;
 			ExecuteCallbacksAvailable = true;
@@ -31,6 +31,13 @@ namespace BizHawk.Emulation.Common
 		private readonly ObservableCollection<IMemoryCallback> _reads = new ObservableCollection<IMemoryCallback>();
 		private readonly ObservableCollection<IMemoryCallback> _writes = new ObservableCollection<IMemoryCallback>();
 		private readonly ObservableCollection<IMemoryCallback> _execs = new ObservableCollection<IMemoryCallback>();
+
+		private readonly Dictionary<string, Dictionary<uint, List<IMemoryCallback>>> _readsByScopeAndAddress = new();
+		private readonly Dictionary<string, Dictionary<uint, List<IMemoryCallback>>> _writesByScopeAndAddress = new();
+		private readonly Dictionary<string, Dictionary<uint, List<IMemoryCallback>>> _execsByScopeAndAddress = new();
+		private readonly List<IMemoryCallback> _nullAddressReads = new();
+		private readonly List<IMemoryCallback> _nullAddressWrites = new();
+		private readonly List<IMemoryCallback> _nullAddressExecs = new();
 
 		private bool _hasAny;
 
@@ -50,12 +57,24 @@ namespace BizHawk.Emulation.Common
 			{
 				case MemoryCallbackType.Execute:
 					_execs.Add(callback);
+					if (callback.Address == null)
+						_nullAddressExecs.Add(callback);
+					else
+						AddToDictionary(_execsByScopeAndAddress, callback);
 					break;
 				case MemoryCallbackType.Read:
 					_reads.Add(callback);
+					if (callback.Address == null)
+						_nullAddressReads.Add(callback);
+					else
+						AddToDictionary(_readsByScopeAndAddress, callback);
 					break;
 				case MemoryCallbackType.Write:
 					_writes.Add(callback);
+					if (callback.Address == null)
+						_nullAddressWrites.Add(callback);
+					else
+						AddToDictionary(_writesByScopeAndAddress, callback);
 					break;
 			}
 
@@ -63,6 +82,16 @@ namespace BizHawk.Emulation.Common
 			{
 				Changes();
 			}
+		}
+
+		private void AddToDictionary(Dictionary<string, Dictionary<uint, List<IMemoryCallback>>> dict, IMemoryCallback callback)
+		{
+			var scope = callback.Scope ?? "";
+			if (!dict.ContainsKey(scope))
+				dict.Add(scope, new Dictionary<uint, List<IMemoryCallback>>());
+			if (!dict[scope].ContainsKey(callback.Address.Value))
+				dict[scope].Add(callback.Address.Value, new List<IMemoryCallback>());
+			dict[scope][callback.Address.Value].Add(callback);
 		}
 
 		private static void Call(ObservableCollection<IMemoryCallback> cbs, uint addr, uint value, uint flags, string scope)
@@ -78,6 +107,22 @@ namespace BizHawk.Emulation.Common
 			}
 		}
 
+		private static void Call(Dictionary<string, Dictionary<uint, List<IMemoryCallback>>> dict, List<IMemoryCallback> nulls, uint addr, uint value, uint flags, string scope)
+		{
+			// Always call nulls
+			for (int i = 0; i < nulls.Count; i++)
+				nulls[i].Callback(addr, value, flags);
+			// Null scopes always called for the address
+			if (dict.ContainsKey(string.Empty) && dict[string.Empty].ContainsKey(addr))
+				for (int i = 0; i < dict[string.Empty][addr].Count; i++)
+					dict[string.Empty][addr][i].Callback(addr, value, flags);
+			if (dict.ContainsKey(scope) && dict[scope].ContainsKey(addr))
+			{
+				for (int i = 0; i < dict[scope][addr].Count; i++)
+					dict[scope][addr][i].Callback(addr, value, flags);
+			}
+		}
+
 		public void CallMemoryCallbacks(uint addr, uint value, uint flags, string scope)
 		{
 			if (!_hasAny)
@@ -87,25 +132,26 @@ namespace BizHawk.Emulation.Common
 
 			if (HasReads)
 			{
-				if ((flags & (uint) MemoryCallbackFlags.AccessRead) != 0)
+				if ((flags & (uint)MemoryCallbackFlags.AccessRead) != 0)
 				{
-					Call(_reads, addr, value, flags, scope);
+					//Call(_reads, addr, value, flags, scope);
+					Call(_readsByScopeAndAddress, _nullAddressReads, addr, value, flags, scope);
 				}
 			}
 
 			if (HasWrites)
 			{
-				if ((flags & (uint) MemoryCallbackFlags.AccessWrite) != 0)
+				if ((flags & (uint)MemoryCallbackFlags.AccessWrite) != 0)
 				{
-					Call(_writes, addr, value, flags, scope);
+					Call(_writesByScopeAndAddress, _nullAddressWrites, addr, value, flags, scope);
 				}
 			}
 
 			if (HasExecutes)
 			{
-				if ((flags & (uint) MemoryCallbackFlags.AccessExecute) != 0)
+				if ((flags & (uint)MemoryCallbackFlags.AccessExecute) != 0)
 				{
-					Call(_execs, addr, value, flags, scope);
+					Call(_execsByScopeAndAddress, _nullAddressExecs, addr, value, flags, scope);
 				}
 			}
 		}
@@ -154,16 +200,28 @@ namespace BizHawk.Emulation.Common
 			foreach (var read in readsToRemove)
 			{
 				_reads.Remove(read);
+				if (read.Address == null)
+					_nullAddressReads.Remove(read);
+				else
+					_readsByScopeAndAddress[read.Scope ?? ""][read.Address.Value].Remove(read);
 			}
 
 			foreach (var write in writesToRemove)
 			{
 				_writes.Remove(write);
+				if (write.Address == null)
+					_nullAddressWrites.Remove(write);
+				else
+					_writesByScopeAndAddress[write.Scope ?? ""][write.Address.Value].Remove(write);
 			}
 
 			foreach (var exec in execsToRemove)
 			{
 				_execs.Remove(exec);
+				if (exec.Address == null)
+					_nullAddressExecs.Remove(exec);
+				else
+					_execsByScopeAndAddress[exec.Scope ?? ""][exec.Address.Value].Remove(exec);
 			}
 
 			return readsToRemove.Count + writesToRemove.Count + execsToRemove.Count;
@@ -214,6 +272,12 @@ namespace BizHawk.Emulation.Common
 			{
 				_execs.RemoveAt(i);
 			}
+			_nullAddressReads.Clear();
+			_nullAddressWrites.Clear();
+			_nullAddressExecs.Clear();
+			_readsByScopeAndAddress.Clear();
+			_writesByScopeAndAddress.Clear();
+			_execsByScopeAndAddress.Clear();
 
 			if (UpdateHasVariables())
 			{
