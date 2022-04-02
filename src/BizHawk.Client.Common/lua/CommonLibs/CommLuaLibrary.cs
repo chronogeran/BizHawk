@@ -49,39 +49,27 @@ namespace BizHawk.Client.Common
 		}
 
 		[LuaMethod("socketServerSend", "sends a string to the Socket server")]
-		public int SocketServerSend(string SendString, int handle = 0)
+		public int SocketServerSend(string SendString)
 		{
 			if (!CheckSocketServer())
 			{
 				return -1;
 			}
-			return APIs.Comm.Sockets.SendString(SendString, socketHandle: handle);
+			return APIs.Comm.Sockets.SendString(SendString);
 		}
 
 		[LuaMethod("socketServerSendBytes", "sends bytes to the Socket server")]
-		public int SocketServerSendBytes(LuaTable byteArray, int handle = 0)
+		public int SocketServerSendBytes(LuaTable byteArray)
 		{
 			if (!CheckSocketServer()) return -1;
-			return APIs.Comm.Sockets.SendBytes(_th.EnumerateValues<double>(byteArray).Select(d => (byte) d).ToArray(), handle);
+			return APIs.Comm.Sockets.SendBytes(_th.EnumerateValues<double>(byteArray).Select(d => (byte) d).ToArray());
 		}
 
 		[LuaMethod("socketServerResponse", "receives a message from the Socket server")]
-		public string SocketServerResponse(int handle = 0)
+		public string SocketServerResponse()
 		{
 			CheckSocketServer();
-			return APIs.Comm.Sockets?.ReceiveString(socketHandle: handle);
-		}
-
-		[LuaMethod("serverSocketListen", "listens on the given port for incoming connections")]
-		public void ServerSocketListen(int backlog)
-		{
-			APIs.Comm.Sockets?.Listen(backlog);
-		}
-
-		[LuaMethod("serverSocketAccept", "returns the handle of a newly connected socket, or 0 if none")]
-		public int ServerSocketAccept()
-		{
-			return APIs.Comm.Sockets?.Accept() ?? 0;
+			return APIs.Comm.Sockets?.ReceiveString();
 		}
 
 		[LuaMethod("socketServerSuccessful", "returns the status of the last Socket server action")]
@@ -91,10 +79,10 @@ namespace BizHawk.Client.Common
 		}
 
 		[LuaMethod("socketServerSetTimeout", "sets the timeout in milliseconds for receiving messages")]
-		public void SocketServerSetTimeout(int timeout, int handle = 0)
+		public void SocketServerSetTimeout(int timeout)
 		{
 			CheckSocketServer();
-			APIs.Comm.Sockets?.SetTimeout(timeout, handle);
+			APIs.Comm.Sockets?.SetTimeout(timeout);
 		}
 
 		[LuaMethod("socketServerSetIp", "sets the IP address of the Lua socket server")]
@@ -140,6 +128,66 @@ namespace BizHawk.Client.Common
 			}
 
 			return true;
+		}
+
+		[LuaMethod("rawSocketCreate", "creates a new socket")]
+		public int RawSocketCreate()
+		{
+			return APIs.Comm.RawSockets.NewSocket();
+		}
+
+		[LuaMethod("rawSocketDestroy", "destroys a socket")]
+		public string RawSocketDestroy(int handle)
+		{
+			return APIs.Comm.RawSockets.Destroy(handle);
+		}
+
+		[LuaMethod("rawSocketListen", "sets a socket to listen for incoming connections (server)")]
+		public string RawSocketListen(int handle, int backlog)
+		{
+			return APIs.Comm.RawSockets.Listen(handle, backlog);
+		}
+
+		[LuaMethod("rawSocketBind", "binds a server socket to the given address and port")]
+		public string RawSocketBind(int handle, string host, int port)
+		{
+			return APIs.Comm.RawSockets.Bind(handle, host, port);
+		}
+
+		[LuaMethod("rawSocketAccept", "Returns a new socket for an incoming client connection, if any")]
+		public int RawSocketAccept(int handle, out string error)
+		{
+			var results = APIs.Comm.RawSockets.Accept(handle);
+			error = results.Error;
+			return results.Handle;
+		}
+
+		[LuaMethod("rawSocketConnect", "connects a client socket to the given host and port")]
+		public string RawSocketConnect(int handle, string host, int port)
+		{
+			return APIs.Comm.RawSockets.Connect(handle, host, port);
+		}
+
+		[LuaMethod("rawSocketSetTimeout", "sets a socket's timeout")]
+		public string RawSocketSetTimeout(int handle, int timeout)
+		{
+			return APIs.Comm.RawSockets.SetTimeout(handle, timeout);
+		}
+
+		[LuaMethod("rawSocketSend", "sends the given UTF8 string on a socket")]
+		public int RawSocketSend(int handle, string sendString, out string error)
+		{
+			var results = APIs.Comm.RawSockets.Send(handle, sendString);
+			error = results.Error;
+			return results.SentBytes;
+		}
+
+		[LuaMethod("rawSocketReceive", "receives the given number of bytes on a socket, if any, and returns them as a string (UTF8)")]
+		public string RawSocketReceive(int handle, int length, out string error)
+		{
+			var results = APIs.Comm.RawSockets.Receive(handle, length);
+			error = results.Error;
+			return results.Data;
 		}
 
 		// All MemoryMappedFile related methods
