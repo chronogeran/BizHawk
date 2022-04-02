@@ -28,7 +28,17 @@ namespace BizHawk.Client.Common
 			if (socket == null)
 				return "socketnotfound";
 
-			socket.Disconnect(false);
+			try
+			{
+				if (socket.Connected)
+					socket.Disconnect(false);
+			}
+			catch (Exception ex)
+			{
+				// TODO errors
+				return ex.Message;
+			}
+			socket.Close();
 			socket.Dispose();
 			_sockets.Remove(handle);
 			return null;
