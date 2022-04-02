@@ -175,19 +175,20 @@ namespace BizHawk.Client.Common
 		}
 
 		[LuaMethod("rawSocketSend", "sends the given UTF8 string on a socket")]
-		public int RawSocketSend(int handle, string sendString, out string error)
+		public int RawSocketSend(int handle, LuaTable sendBytes, out string error)
 		{
-			var results = APIs.Comm.RawSockets.Send(handle, sendString);
+			var bytes = _th.EnumerateValues<double>(sendBytes).Select(d => (byte)d).ToArray();
+			var results = APIs.Comm.RawSockets.Send(handle, bytes);
 			error = results.Error;
 			return results.SentBytes;
 		}
 
 		[LuaMethod("rawSocketReceive", "receives the given number of bytes on a socket, if any, and returns them as a string (UTF8)")]
-		public string RawSocketReceive(int handle, int length, out string error)
+		public LuaTable RawSocketReceive(int handle, int length, out string error)
 		{
 			var results = APIs.Comm.RawSockets.Receive(handle, length);
 			error = results.Error;
-			return results.Data;
+			return results.Data != null ? _th.ListToTable(results.Data) : null;
 		}
 
 		// All MemoryMappedFile related methods

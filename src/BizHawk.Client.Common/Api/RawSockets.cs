@@ -113,7 +113,7 @@ namespace BizHawk.Client.Common
 			}
 		}
 
-		public (string Data, string Error) Receive(int handle, int length)
+		public (byte[] Data, string Error) Receive(int handle, int length)
 		{
 			var socket = GetSocket(handle);
 			if (socket == null)
@@ -124,7 +124,7 @@ namespace BizHawk.Client.Common
 			{
 				socket.Receive(buffer, length, SocketFlags.None);
 
-				return (Encoding.UTF8.GetString(buffer, 0, length), null);
+				return (buffer, null);
 			}
 			catch (Exception ex)
 			{
@@ -142,7 +142,7 @@ namespace BizHawk.Client.Common
 			}
 		}
 
-		public (int SentBytes, string Error) Send(int handle, string sendString)
+		public (int SentBytes, string Error) Send(int handle, byte[] sendBytes)
 		{
 			var socket = GetSocket(handle);
 			if (socket == null)
@@ -150,8 +150,7 @@ namespace BizHawk.Client.Common
 
 			try
 			{
-				var payloadBytes = Encoding.UTF8.GetBytes(sendString);
-				var sentBytes = socket.Send(payloadBytes, SocketFlags.None);
+				var sentBytes = socket.Send(sendBytes, SocketFlags.None);
 				return (sentBytes, null);
 			}
 			catch (Exception ex)
