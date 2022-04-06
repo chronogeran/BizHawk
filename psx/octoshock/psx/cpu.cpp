@@ -343,9 +343,7 @@ INLINE T PS_CPU::ReadMemory(pscpu_timestamp_t &timestamp, uint32 address, bool D
 template<typename T>
 INLINE void PS_CPU::WriteMemory(pscpu_timestamp_t &timestamp, uint32 address, uint32 value, bool DS24)
 {
-	if (g_ShockMemCallback && (g_ShockMemCbType & eShockMemCb_Write))
-		g_ShockMemCallback(address, eShockMemCb_Write, DS24 ? 24 : sizeof(T) * 8, value);
-
+ auto originalAddress = address;
  if(MDFN_LIKELY(!(CP0.SR & 0x10000)))
  {
   address &= addr_mask[address >> 29];
@@ -357,6 +355,8 @@ INLINE void PS_CPU::WriteMemory(pscpu_timestamp_t &timestamp, uint32 address, ui
    else
     ScratchRAM.Write<T>(address & 0x3FF, value);
 
+   if (g_ShockMemCallback && (g_ShockMemCbType & eShockMemCb_Write))
+    g_ShockMemCallback(originalAddress, eShockMemCb_Write, DS24 ? 24 : sizeof(T) * 8, value);
    return;
   }
 
@@ -402,6 +402,8 @@ INLINE void PS_CPU::WriteMemory(pscpu_timestamp_t &timestamp, uint32 address, ui
   }
   //printf("IsC WRITE%d 0x%08x 0x%08x -- CP0.SR=0x%08x\n", (int)sizeof(T), address, value, CP0.SR);
  }
+ if (g_ShockMemCallback && (g_ShockMemCbType & eShockMemCb_Write))
+  g_ShockMemCallback(originalAddress, eShockMemCb_Write, DS24 ? 24 : sizeof(T) * 8, value);
 }
 
 //
