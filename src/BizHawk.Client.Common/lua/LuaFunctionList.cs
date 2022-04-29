@@ -10,6 +10,15 @@ namespace BizHawk.Client.Common
 	public class LuaFunctionList : IEnumerable<NamedLuaFunction>
 	{
 		private readonly List<NamedLuaFunction> _functions = new List<NamedLuaFunction>();
+		private readonly Dictionary<string, List<NamedLuaFunction>> _functionsByEvent = new()
+		{
+			{ "OnSavestateSave", new() },
+			{ "OnSavestateLoad", new() },
+			{ "OnFrameStart", new() },
+			{ "OnFrameEnd", new() },
+			{ "OnExit", new() },
+			{ "OnConsoleClose", new() },
+		};
 
 		private readonly Action Changed;
 
@@ -18,9 +27,14 @@ namespace BizHawk.Client.Common
 		public NamedLuaFunction this[string guid] =>
 			_functions.FirstOrDefault(nlf => nlf.Guid.ToString() == guid);
 
+		public List<NamedLuaFunction> ByEvent(string theEvent) { return _functionsByEvent[theEvent]; }
+
 		public void Add(NamedLuaFunction nlf)
 		{
 			_functions.Add(nlf);
+			if (!_functionsByEvent.ContainsKey(nlf.Event))
+				_functionsByEvent[nlf.Event] = new();
+			_functionsByEvent[nlf.Event].Add(nlf);
 			Changed();
 		}
 
@@ -37,6 +51,8 @@ namespace BizHawk.Client.Common
 			}
 
 			var result = _functions.Remove(function);
+			if (_functionsByEvent.ContainsKey(function.Event))
+				_functionsByEvent[function.Event].Remove(function);
 			if (result)
 			{
 				Changed();
@@ -74,6 +90,8 @@ namespace BizHawk.Client.Common
 			}
 
 			_functions.Clear();
+			foreach (var list in _functionsByEvent.Values)
+				list.Clear();
 			Changed();
 		}
 
